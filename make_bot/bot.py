@@ -15,7 +15,6 @@ if not TELEGRAM_BOT_TOKEN:
     raise ValueError("TELEGRAM_BOT_TOKEN environment variable not set.")
 
 
-# Enable logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
@@ -48,7 +47,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     # Process the message using the agent service instance
     agent_response = await agent_service.process_message(chat_id, user_input)
-
     await update.message.reply_text(agent_response)
 
 
@@ -79,9 +77,9 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     logger.info("Starting bot polling...")
-    # Run the bot until the user presses Ctrl-C
+    # Run the bot
     application.run_polling(allowed_updates=Update.ALL_TYPES)
-    logger.info("Bot polling stopped.")
+    logger.info("Bot polling stopped.") # when Ctrl-C is pressed
 
 
 if __name__ == "__main__":

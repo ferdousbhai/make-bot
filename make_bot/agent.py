@@ -96,12 +96,10 @@ class AgentService:
 
     async def shutdown(self):
         """Exits the run_mcp_servers context and cleans up."""
-        # --- Simplified Shutdown Check --- #
         if not self._mcp_stack:
             # If stack doesn't exist, it's either not initialized or already shut down.
             logger.warning("Agent service not running or already shut down.")
             return
-        # ------------------------------- #
 
         logger.info("Shutting down AgentService...")
         try:
@@ -110,20 +108,16 @@ class AgentService:
         except Exception as e:
             logger.error(f"Error shutting down MCP servers: {e}", exc_info=True)
         finally:
-            # --- Simplified Cleanup --- #
             self.agent = None
             self._mcp_stack = None
             self._is_initialized = False
             logger.info("AgentService shut down.")
-            # ------------------------ #
 
     async def process_message(self, chat_id: int, user_input: str) -> str:
         """Processes a user message using the agent."""
-        # --- Simplified Initialization Check --- #
         if not self.agent or not self._is_initialized:
             logger.error("Agent service not initialized. Cannot process message.")
             return "Sorry, the agent is not ready. Please try again later."
-        # ------------------------------------- #
 
         current_chat_history = get_chat_history(chat_id)
 
