@@ -14,3 +14,6 @@ wheels/
 
 # Node modules
 node_modules/
+
+# MCP servers config
+mcp_servers_config.json

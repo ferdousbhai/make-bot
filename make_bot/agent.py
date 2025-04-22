@@ -1,5 +1,6 @@
 # import os
 import logging
+import json
 from typing import Optional
 from contextlib import AsyncExitStack
 
@@ -42,21 +43,44 @@ class AgentService:
 
         logger.info("Initializing AgentService...")
         try:
-            run_python_server = MCPServerStdio(
-                'deno',
-                args=[
-                    'run', '-N', '-R=node_modules', '-W=node_modules',
-                    '--node-modules-dir=auto', 'jsr:@pydantic/mcp-run-python', 'stdio'
-                ]
-            )
+            # Load MCP server configurations from JSON file
+            try:
+                with open('mcp_servers_config.json', 'r') as f:
+                    mcp_config = json.load(f)
+                mcp_servers_config = mcp_config.get('mcpServers', {})
+                logger.info(f"Loaded {len(mcp_servers_config)} MCP server configurations from mcp_servers_config.json")
+            except FileNotFoundError:
+                logger.warning("mcp_servers_config.json not found. No external MCP servers will be loaded.")
+                mcp_servers_config = {}
+            except json.JSONDecodeError:
+                logger.error("Error decoding mcp_servers_config.json. Please check the file format.")
+                mcp_servers_config = {}
+
+
+            # Create MCPServer instances from the loaded configuration
+            mcp_servers = []
+            for name, config in mcp_servers_config.items():
+                command = config.get('command')
+                args = config.get('args', [])
+                env = config.get('env') # Get environment variables if specified
+                if command:
+                    server = MCPServerStdio(
+                        command, # Pass command as the first positional argument
+                        args=args,
+                        env=env # Pass environment variables
+                    )
+                    mcp_servers.append(server)
+                    logger.debug(f"Created MCPServerStdio instance for server: {name}")
+                else:
+                    logger.warning(f"Skipping server '{name}' due to missing 'command' field in configuration.")
+
             # provider = OpenAIProvider(base_url='https://api.x.ai/v1', api_key=XAI_API_KEY)
             # model = OpenAIModel('grok-3-mini-beta', provider=provider)
-
             self.agent = Agent(
                 'openai:o4-mini',
                 deps_type=int,
                 tools=[start_new_chat],
-                mcp_servers=[run_python_server]
+                mcp_servers=mcp_servers # Use the dynamically loaded servers
             )
 
             self._mcp_stack = AsyncExitStack()
