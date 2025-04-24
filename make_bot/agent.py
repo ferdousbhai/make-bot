@@ -3,7 +3,9 @@ import logging
 import json
 from typing import Optional
 from contextlib import AsyncExitStack
+import os
 
+import logfire
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.mcp import MCPServerStdio
 from dotenv import load_dotenv
@@ -19,13 +21,36 @@ load_dotenv()
 # if not XAI_API_KEY:
 #     raise ValueError("XAI_API_KEY environment variable not set.")
 
+# constants
+MODEL_IDENTIFIER = 'openai:o4-mini' #TODO: replace with grok-3-mini-beta after pydantic-ai is updated
+SYSTEM_PROMPT_FILE = os.path.join(os.path.dirname(__file__), 'system_prompt.txt')
+
 logger = logging.getLogger(__name__)
+
+# Load system prompt once at module load
+try:
+    with open(SYSTEM_PROMPT_FILE, 'r') as f:
+        SYSTEM_PROMPT = f.read()
+except FileNotFoundError:
+    logger.error(f"System prompt file not found at {SYSTEM_PROMPT_FILE}. Agent may not behave as expected.")
+    SYSTEM_PROMPT = "You are a helpful AI assistant." # Fallback prompt
+except Exception as e:
+    logger.error(f"Error reading system prompt file {SYSTEM_PROMPT_FILE}: {e}", exc_info=True)
+    SYSTEM_PROMPT = "You are a helpful AI assistant." # Fallback prompt
 
 
 def start_new_chat(ctx: RunContext[int]):
     """Start a new chat when a conversation topic is changed."""
+    logger.info(f"Starting new chat for chat_id: {ctx.deps}")
     clear_chat(ctx.deps)
 
+def think(thought: str):
+    """Use the tool to think about something. It will not obtain new information or change the database, but just append the thought to the log. Use it when complex reasoning or some cache memory is needed."""
+    logger.info(f"Agent thought: {thought}")
+    # The tool doesn't need to return anything meaningful to the LLM,
+    # as its purpose is just logging the thought process.
+    # Returning a simple confirmation message.
+    return "Thought logged."
 
 class AgentService:
     """Manages the lifecycle and interactions of the Pydantic-AI Agent using run_mcp_servers."""
@@ -46,8 +71,7 @@ class AgentService:
             # Load MCP server configurations from JSON file
             try:
                 with open('mcp_servers_config.json', 'r') as f:
-                    mcp_config = json.load(f)
-                mcp_servers_config = mcp_config.get('mcpServers', {})
+                    mcp_servers_config = json.load(f).get('mcpServers', {})
                 logger.info(f"Loaded {len(mcp_servers_config)} MCP server configurations from mcp_servers_config.json")
             except FileNotFoundError:
                 logger.warning("mcp_servers_config.json not found. No external MCP servers will be loaded.")
@@ -56,32 +80,25 @@ class AgentService:
                 logger.error("Error decoding mcp_servers_config.json. Please check the file format.")
                 mcp_servers_config = {}
 
-
-            # Create MCPServer instances from the loaded configuration
-            mcp_servers = []
-            for name, config in mcp_servers_config.items():
-                command = config.get('command')
-                args = config.get('args', [])
-                env = config.get('env') # Get environment variables if specified
-                if command:
-                    server = MCPServerStdio(
-                        command, # Pass command as the first positional argument
-                        args=args,
-                        env=env # Pass environment variables
-                    )
-                    mcp_servers.append(server)
-                    logger.debug(f"Created MCPServerStdio instance for server: {name}")
-                else:
-                    logger.warning(f"Skipping server '{name}' due to missing 'command' field in configuration.")
+            mcp_servers = [
+                MCPServerStdio(config['command'], args=config.get('args', []), env=config.get('env'))
+                for name, config in mcp_servers_config.items() if config.get('command')
+            ]
 
             # provider = OpenAIProvider(base_url='https://api.x.ai/v1', api_key=XAI_API_KEY)
             # model = OpenAIModel('grok-3-mini-beta', provider=provider)
+
+            logfire.configure()
+
             self.agent = Agent(
-                'openai:o4-mini',
+                MODEL_IDENTIFIER,
                 deps_type=int,
-                tools=[start_new_chat],
-                mcp_servers=mcp_servers # Use the dynamically loaded servers
+                system_prompt=SYSTEM_PROMPT,
+                tools=[start_new_chat, think],
+                mcp_servers=mcp_servers,
+                instrument=True
             )
+
 
             self._mcp_stack = AsyncExitStack()
             logger.info("Starting MCP servers via context manager...")
