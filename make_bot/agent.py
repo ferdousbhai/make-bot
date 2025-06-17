@@ -7,21 +7,16 @@ from dataclasses import dataclass
 import logfire
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.mcp import MCPServerStdio
-from dotenv import load_dotenv
 from telegramify_markdown import telegramify
 from telegram.constants import ParseMode
 
 from .chat_history import (
-    get_chat_history, add_messages_to_history, get_chat_context, set_chat_context,
+    get_chat_history, add_turn_to_history, get_chat_context, set_chat_context,
     search_chat_history_keywords, get_chat_history_range, get_chat_history_by_time
 )
 from .context_manager import ensure_context_fits
 from .prompt_loader import get_system_prompt, ModelType
-
-
-load_dotenv()
-ORCHESTRATOR_MODEL_IDENTIFIER = os.getenv('ORCHESTRATOR_MODEL_IDENTIFIER', 'groq:llama-3.1-8b-instant')
-EXPERT_MODEL_IDENTIFIER = os.getenv('EXPERT_MODEL_IDENTIFIER', 'anthropic:claude-sonnet-4-latest')
+from .config import CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -66,9 +61,6 @@ def update_chat_context(ctx: RunContext[ChatDeps], context: str):
     current_context = get_chat_context(ctx.deps.chat_id)
     return f"Context updated. Current context: {current_context[:200]}{'...' if len(current_context) > 200 else ''}"
 
-
-
-
 async def get_expert_response(ctx: RunContext[ChatDeps], query: str, context: str = "", mcp_servers: List[str] = None):
     """Consult a more powerful expert model for complex tasks and analysis.
 
@@ -83,18 +75,18 @@ async def get_expert_response(ctx: RunContext[ChatDeps], query: str, context: st
         query: The specific question or task to ask the expert model
         context: Additional context or background information for the expert
         mcp_servers: List of MCP server names to provide to the expert. Choose based on task requirements:
-            - "run-python": For tasks requiring Python code execution, data analysis, calculations, 
+            - "run-python": For tasks requiring Python code execution, data analysis, calculations,
               scientific computing, chart generation, or any programming tasks
-            - "investor": For investment analysis, financial planning, market research, 
+            - "investor": For investment analysis, financial planning, market research,
               stock analysis, or economic questions
-            - "brave-search": For current events, recent information, web research, 
+            - "brave-search": For current events, recent information, web research,
               fact-checking, or when up-to-date information is needed
             If None or empty list, expert will work without external tools.
             Use list_available_mcp_servers() to see currently configured servers.
-    
+
     Examples:
         - For data analysis: mcp_servers=["run-python"]
-        - For investment questions: mcp_servers=["investor"] 
+        - For investment questions: mcp_servers=["investor"]
         - For current events: mcp_servers=["brave-search"]
         - For complex research: mcp_servers=["brave-search", "run-python"]
         - For pure reasoning: mcp_servers=[] or mcp_servers=None
@@ -104,52 +96,43 @@ async def get_expert_response(ctx: RunContext[ChatDeps], query: str, context: st
     try:
         expert_prompt = get_system_prompt(ModelType.EXPERT, context=context)
 
-        # Create MCP servers for expert agent based on requested servers
-        if mcp_servers is None:
-            mcp_servers = []
-        
-        available_servers = ctx.deps.mcp_servers_config
+        # Setup MCP servers if requested
         selected_mcp_servers = []
-        
-        for server_name in mcp_servers:
-            if server_name in available_servers and available_servers[server_name].get('command'):
-                config = available_servers[server_name]
-                selected_mcp_servers.append(
-                    MCPServerStdio(config['command'], args=config.get('args', []), env=config.get('env'))
-                )
-                logger.info(f"Adding MCP server '{server_name}' to expert agent")
-            else:
-                logger.warning(f"Requested MCP server '{server_name}' not found or not configured")
-        
-        logger.info(f"Expert agent will use {len(selected_mcp_servers)} MCP servers: {mcp_servers}")
+        if mcp_servers:
+            available_servers = ctx.deps.mcp_servers_config
+            for server_name in mcp_servers:
+                config = available_servers.get(server_name, {})
+                if config.get('command'):
+                    selected_mcp_servers.append(
+                        MCPServerStdio(config['command'], args=config.get('args', []), env=config.get('env'))
+                    )
+                    logger.info(f"Adding MCP server '{server_name}' to expert agent")
+                else:
+                    logger.warning(f"Requested MCP server '{server_name}' not found or not configured")
 
-        # Expert agent has selected MCP servers but no custom tools
+        logger.info(f"Expert agent will use {len(selected_mcp_servers)} MCP servers: {mcp_servers or []}")
+
+        # Create expert agent (with or without MCP servers)
+        agent_kwargs = {
+            'model': CONFIG.models.expert_model_identifier,
+            'system_prompt': expert_prompt
+        }
         if selected_mcp_servers:
-            expert_agent = Agent(
-                EXPERT_MODEL_IDENTIFIER,
-                system_prompt=expert_prompt,
-                mcp_servers=selected_mcp_servers
-            )
-        else:
-            # No MCP servers requested, create agent without them
-            expert_agent = Agent(
-                EXPERT_MODEL_IDENTIFIER,
-                system_prompt=expert_prompt
-            )
+            agent_kwargs['mcp_servers'] = selected_mcp_servers
 
-        # Ensure expert query fits within expert model limits
+        expert_agent = Agent(**agent_kwargs)
+
+        # Compress query if needed and run expert agent
         _, compressed_query_list = ensure_context_fits(
             system_prompt=expert_prompt,
             context="",
-            chat_history=[query],  # Treat query as single message
+            chat_history=[query],
             user_input="",
-            model_identifier=EXPERT_MODEL_IDENTIFIER
+            model_identifier=CONFIG.models.expert_model_identifier
         )
-
-        # Use compressed query if compression was applied
         final_query = compressed_query_list[0] if compressed_query_list else query
 
-        # Run expert agent (with or without MCP servers)
+        # Run expert agent
         if selected_mcp_servers:
             async with expert_agent.run_mcp_servers():
                 result = await expert_agent.run(final_query)
@@ -166,27 +149,33 @@ async def get_expert_response(ctx: RunContext[ChatDeps], query: str, context: st
 
 def list_available_mcp_servers(ctx: RunContext[ChatDeps]) -> str:
     """List all available MCP servers that can be provided to the expert model.
-    
+
     Use this tool to see what MCP servers are available before calling get_expert_response.
     """
     if not ctx.deps.mcp_servers_config:
         return "No MCP servers are configured."
-    
-    server_list = []
-    for name, config in ctx.deps.mcp_servers_config.items():
-        if config.get('command'):
-            # Try to infer purpose from server name
-            if 'python' in name.lower():
-                purpose = "Python code execution and data analysis"
-            elif 'search' in name.lower() or 'brave' in name.lower():
-                purpose = "Web search and current information lookup"
-            elif 'investor' in name.lower() or 'finance' in name.lower():
-                purpose = "Investment, finance, and market analysis"
-            else:
-                purpose = "General purpose tool"
-            
-            server_list.append(f"- {name}: {purpose}")
-    
+
+    # Purpose mapping for server types
+    purpose_map = {
+        'python': "Python code execution and data analysis",
+        'search': "Web search and current information lookup",
+        'brave': "Web search and current information lookup",
+        'investor': "Investment, finance, and market analysis",
+        'finance': "Investment, finance, and market analysis"
+    }
+
+    def get_purpose(name):
+        for key, purpose in purpose_map.items():
+            if key in name.lower():
+                return purpose
+        return "General purpose tool"
+
+    server_list = [
+        f"- {name}: {get_purpose(name)}"
+        for name, config in ctx.deps.mcp_servers_config.items()
+        if config.get('command')
+    ]
+
     return "Available MCP servers:\n" + "\n".join(server_list)
 
 
@@ -226,90 +215,51 @@ def search_chat_history_tool(
         - search_chat_history_tool(keywords=["bug"], minutes_ago_start=120, minutes_ago_end=60)  # Keyword + time range
     """
     chat_id = ctx.deps.chat_id
+    has_keywords = keywords and len(keywords) > 0
+    has_turn_range = start_turn is not None or end_turn is not None
+    has_time_range = minutes_ago_start is not None
 
-    # Determine search method based on parameters
-    if keywords and (start_turn is not None or end_turn is not None):
-        # Combined keyword + turn range search
-        if start_turn is None:
-            start_turn = -30
-        if end_turn is None:
-            end_turn = -1
-
-        # Get messages in range first
-        range_messages = get_chat_history_range(chat_id, start_turn, end_turn)
-
-        # Then filter by keywords
-        keywords_lower = [kw.lower() for kw in keywords]
+    # Helper function to filter messages by keywords
+    def filter_messages_by_keywords(messages, keyword_list, max_results):
+        if not keyword_list:
+            return messages[:max_results]
+        keywords_lower = [kw.lower() for kw in keyword_list]
         matches = []
-        for msg in range_messages:
-            msg_str = str(msg).lower()
-            if any(keyword in msg_str for keyword in keywords_lower):
+        for msg in messages:
+            if any(kw in str(msg).lower() for kw in keywords_lower) and len(matches) < max_results:
                 matches.append(str(msg))
-                if len(matches) >= max_results:
-                    break
+        return matches
 
-        if not matches:
-            return f"No messages found containing {keywords} in turns {start_turn} to {end_turn}"
-        return f"Found {len(matches)} messages containing {keywords} in turns {start_turn} to {end_turn}:\n\n" + "\n".join(f"- {msg}" for msg in matches)
+    # Helper function to format results
+    def format_search_results(messages, search_description, keyword_list=None):
+        if not messages:
+            keyword_part = f" containing {keyword_list}" if keyword_list else ""
+            return f"No messages found{keyword_part} {search_description}"
+        keyword_part = f" containing {keyword_list}" if keyword_list else ""
+        return f"Found {len(messages)} messages{keyword_part} {search_description}:\n\n" + "\n".join(f"- {msg}" for msg in messages)
 
-    elif keywords and minutes_ago_start is not None:
-        # Combined keyword + time search
-        minutes_ago_end_val = minutes_ago_end if minutes_ago_end is not None else 0
-        time_messages = get_chat_history_by_time(chat_id, minutes_ago_start, minutes_ago_end_val)
+    # No search criteria provided
+    if not (has_keywords or has_turn_range or has_time_range):
+        return "Please specify search criteria: keywords, turn range (start_turn/end_turn), or time period (minutes_ago_start/minutes_ago_end)"
 
-        # Filter by keywords
-        keywords_lower = [kw.lower() for kw in keywords]
-        matches = []
-        for msg in time_messages:
-            msg_str = str(msg).lower()
-            if any(keyword in msg_str for keyword in keywords_lower):
-                matches.append(str(msg))
-                if len(matches) >= max_results:
-                    break
-
-        time_desc = f"{minutes_ago_start} minutes ago" if minutes_ago_end_val == 0 else f"{minutes_ago_start}-{minutes_ago_end_val} minutes ago"
-        if not matches:
-            return f"No messages found containing {keywords} from {time_desc}"
-        return f"Found {len(matches)} messages containing {keywords} from {time_desc}:\n\n" + "\n".join(f"- {msg}" for msg in matches)
-
-    elif keywords:
+    # Get base messages based on range type
+    if has_turn_range:
+        start_turn = start_turn or -30
+        end_turn = end_turn or -1
+        messages = get_chat_history_range(chat_id, start_turn, end_turn)
+        search_description = f"in turns {start_turn} to {end_turn}"
+    elif has_time_range:
+        minutes_ago_end_val = minutes_ago_end or 0
+        messages = get_chat_history_by_time(chat_id, minutes_ago_start, minutes_ago_end_val)
+        search_description = f"from last {minutes_ago_start} minutes" if minutes_ago_end_val == 0 else f"from {minutes_ago_start}-{minutes_ago_end_val} minutes ago"
+    else:
         # Pure keyword search
         results = search_chat_history_keywords(chat_id, keywords, max_results)
-        if not results:
-            return f"No messages found containing any of: {keywords}"
-        return f"Found {len(results)} messages containing {keywords}:\n\n" + "\n".join(f"- {msg}" for msg in results)
+        return format_search_results(results, "", keywords)
 
-    elif start_turn is not None or end_turn is not None:
-        # Pure turn range search
-        if start_turn is None:
-            start_turn = -30
-        if end_turn is None:
-            end_turn = -1
-
-        messages = get_chat_history_range(chat_id, start_turn, end_turn)
-        if not messages:
-            return f"No messages found in turn range {start_turn} to {end_turn}"
-        return f"Messages from turns {start_turn} to {end_turn} ({len(messages)} messages):\n\n" + "\n".join(f"- {msg}" for msg in messages[:max_results])
-
-    elif minutes_ago_start is not None:
-        # Pure time search
-        minutes_ago_end_val = minutes_ago_end if minutes_ago_end is not None else 0
-        messages = get_chat_history_by_time(chat_id, minutes_ago_start, minutes_ago_end_val)
-
-        time_desc = (
-            f"last {minutes_ago_start} minutes"
-            if minutes_ago_end_val == 0
-            else f"{minutes_ago_start}-{minutes_ago_end_val} minutes ago"
-        )
-        return (
-            f"No messages found from {time_desc}"
-            if not messages
-            else f"Messages from {time_desc} ({len(messages)} messages):\n\n"
-            + "\n".join(f"- {msg}" for msg in messages[:max_results])
-        )
-
-    else:
-        return "Please specify search criteria: keywords, turn range (start_turn/end_turn), or time period (minutes_ago_start/minutes_ago_end)"
+    # Apply keyword filter if needed and format results
+    filtered_messages = filter_messages_by_keywords(messages, keywords if has_keywords else None, max_results)
+    return format_search_results(filtered_messages, search_description, keywords if has_keywords else None)
 
 
 # =============================================================================
@@ -318,7 +268,7 @@ def search_chat_history_tool(
 
 class AgentService:
     """Manages the lifecycle and interactions of the Pydantic-AI Orchestrator Agent.
-    
+
     The orchestrator agent (Dan) has access to custom tools only.
     Expert model access is provided through the get_expert_response tool which creates
     a separate expert agent with MCP servers but no custom tools.
@@ -327,7 +277,6 @@ class AgentService:
     def __init__(self):
         self.agent: Optional[Agent] = None
         self._is_initialized = False
-        self.mcp_servers_config = {}
 
     async def initialize(self):
         """Initializes the orchestrator agent with custom tools only."""
@@ -337,26 +286,12 @@ class AgentService:
 
         logger.info("Initializing AgentService...")
         try:
-            # Load MCP server configurations for expert model
-            try:
-                with open('mcp_servers_config.json', 'r') as f:
-                    self.mcp_servers_config = json.load(f).get('mcpServers', {})
-                logger.info(f"Loaded {len(self.mcp_servers_config)} MCP server configurations from mcp_servers_config.json")
-            except FileNotFoundError:
-                logger.warning("mcp_servers_config.json not found. No external MCP servers will be loaded for expert model.")
-                self.mcp_servers_config = {}
-            except json.JSONDecodeError:
-                logger.error("Error decoding mcp_servers_config.json. Please check the file format.")
-                self.mcp_servers_config = {}
-
             logfire.configure()
 
-            # Get the orchestrator system prompt
+            # Create orchestrator agent with custom tools only
             system_prompt = get_system_prompt(ModelType.ORCHESTRATOR)
-
-            # Orchestrator agent (Dan) - only has custom tools, no MCP servers
             self.agent = Agent(
-                ORCHESTRATOR_MODEL_IDENTIFIER,
+                CONFIG.models.orchestrator_model_identifier,
                 deps_type=ChatDeps,
                 system_prompt=system_prompt,
                 tools=[update_chat_context, reply_to_user, get_expert_response, search_chat_history_tool, list_available_mcp_servers],
@@ -393,7 +328,7 @@ class AgentService:
 
         current_chat_history = get_chat_history(chat_id)
         current_context = get_chat_context(chat_id)
-        deps = ChatDeps(chat_id=chat_id, reply_text=reply_text_func, mcp_servers_config=self.mcp_servers_config)
+        deps = ChatDeps(chat_id=chat_id, reply_text=reply_text_func, mcp_servers_config=CONFIG.mcp_servers)
 
         try:
             # Get context-aware system prompt
@@ -405,7 +340,7 @@ class AgentService:
                 context=current_context,
                 chat_history=current_chat_history,
                 user_input=user_input,
-                model_identifier=ORCHESTRATOR_MODEL_IDENTIFIER
+                model_identifier=CONFIG.models.orchestrator_model_identifier
             )
 
             # Update context if it was compressed
@@ -422,7 +357,7 @@ class AgentService:
             logger.debug(f"Agent response received for chat_id {chat_id}.")
 
             new_messages = result.new_messages()
-            add_messages_to_history(chat_id, new_messages, message_timestamp)
+            add_turn_to_history(chat_id, new_messages, message_timestamp)
             logger.debug(f"Added {len(new_messages)} messages to history for chat_id {chat_id}")
 
             return result.output
