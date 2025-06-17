@@ -1,12 +1,11 @@
 import logging
-import os
 import asyncio
 import functools
 
-from telegramify_markdown import markdownify
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from telegram.constants import ChatAction, ParseMode
+import telegramify_markdown
 
 from .agent import AgentService
 from .chat_history import set_chat_context
@@ -31,17 +30,13 @@ def is_user_authorized(func):
         return await func(update, context, *args, **kwargs)
     return wrapper
 
-async def _send_markdown_reply(update: Update, message: str):
-    """Helper to send markdown-formatted reply."""
-    await update.message.reply_text(markdownify(message), parse_mode=ParseMode.MARKDOWN_V2)
-
 @is_user_authorized
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command."""
     message = ("👋 Agent Ready! Send me a message.\n\n"
-              "_(Note: Chat history is maintained only for the current session and is not stored permanently. "
-              "The agent has no long-term memory across sessions or restarts.)_")
-    await _send_markdown_reply(update, message)
+              "Note: Chat history is maintained only for the current session and is not stored permanently. "
+              "The agent has no long-term memory across sessions or restarts.")
+    await update.message.reply_text(message)
 
 @is_user_authorized
 async def start_new_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -50,10 +45,8 @@ async def start_new_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     logger.info(f"Received /new command from chat_id {chat_id}. Clearing context and history.")
     set_chat_context(chat_id, "")  # Empty context triggers history clearing
 
-    message = ("🧹 New chat started! Your previous conversation history and context are cleared.\n\n"
-              "_(Note: Chat history is maintained only for the current session and is not stored permanently. "
-              "The agent has no long-term memory across sessions or restarts.)_")
-    await _send_markdown_reply(update, message)
+    message = ("🧹 New chat started! Your previous conversation history and context are cleared.\n\n")
+    await update.message.reply_text(message)
 
 @is_user_authorized
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -101,9 +94,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def initialize_agent_service(application: Application):
     """Initialize agent service after bot starts."""
-    logger.info("Bot started, initializing agent service...")
     await agent_service.initialize()
-    logger.info("Agent service initialized.")
 
 async def shutdown_agent_service(application: Application):
     """Shutdown agent service before bot stops."""

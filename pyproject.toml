@@ -7,10 +7,11 @@ requires-python = ">=3.13"
 dependencies = [
     "logfire",
     "pydantic-ai",
-    "python-dotenv",
-    "python-telegram-bot",
-    "telegramify-markdown",
     "tiktoken",
+    "python-telegram-bot",
+    "python-dotenv",
+    "anyio",
+    "telegramify-markdown",
 ]
 authors = [
     { name = "Ferdous", email = "ferdous@hey.com" }
@@ -21,6 +22,14 @@ classifiers = [
     "Topic :: Office/Business :: Financial",
     "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: MIT License",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel"
+]
+lint = [
+    "ruff"
 ]
 
 [project.scripts]

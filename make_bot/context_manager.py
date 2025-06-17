@@ -1,6 +1,5 @@
 import logging
 import tiktoken
-from typing import List, Tuple
 from dataclasses import dataclass
 
 from .config import CONFIG
@@ -41,7 +40,7 @@ def count_tokens(text: str) -> int:
         logger.warning(f"Error counting tokens: {e}, using character estimate")
         return len(text) // 4  # Rough estimate
 
-def analyze_context_usage(system_prompt: str, context: str, chat_history: List, user_input: str, model_identifier: str) -> ContextInfo:
+def analyze_context_usage(system_prompt: str, context: str, chat_history: list, user_input: str, model_identifier: str) -> ContextInfo:
     """Analyze context usage and determine if compression is needed."""
     components = {
         'system': system_prompt,
@@ -66,7 +65,7 @@ def analyze_context_usage(system_prompt: str, context: str, chat_history: List, 
         needs_compression=remaining < 0
     )
 
-def _compress_by_truncation(history_items: List, target_reduction: int, min_keep: int = 2) -> List:
+def _compress_by_truncation(history_items: list, target_reduction: int, min_keep: int = 2) -> list:
     """Generic compression by removing oldest items."""
     if not history_items or len(history_items) <= min_keep:
         return history_items
@@ -83,70 +82,45 @@ def _compress_by_truncation(history_items: List, target_reduction: int, min_keep
 
     return compressed
 
-def _compress_text_smartly(text: str, max_tokens: int) -> str:
-    """Compress text with smart truncation at sentence boundaries."""
-    if not text or count_tokens(text) <= max_tokens:
-        return text
+def create_context_compression_processor(model_identifier: str, system_prompt: str = "", context: str = "", user_input: str = ""):
+    """Create a history processor that automatically compresses context when needed.
 
-    target_ratio = max_tokens / count_tokens(text)
-    target_length = int(len(text) * target_ratio)
+    This is designed to be used with pydantic-ai's built-in history_processors feature.
 
-    # Try sentence-boundary truncation
-    sentences = text.split('. ')
-    if len(sentences) > 1:
-        compressed = ""
-        for sentence in reversed(sentences):
-            test_text = sentence + ". " + compressed
-            if count_tokens(test_text) <= max_tokens:
-                compressed = test_text
-            else:
-                break
-        if compressed:
-            return compressed.strip()
+    Args:
+        model_identifier: The model identifier to get context limits for
+        system_prompt: System prompt to account for in token counting
+        context: Additional context to account for in token counting
+        user_input: User input to account for in token counting
 
-    # Fallback to simple truncation
-    compressed = text[:target_length]
-    logger.warning(f"Text truncated from {len(text)} to {len(compressed)} characters")
-    return compressed
+    Returns:
+        A history processor function that compresses messages when context limit is exceeded
+    """
+    async def compress_history_for_context(messages: list) -> list:
+        """Compress message history to fit within context limits."""
+        # Quick check - if no messages, return as-is
+        if not messages:
+            return messages
 
-def ensure_context_fits(system_prompt: str, context: str, chat_history: List, user_input: str, model_identifier: str) -> Tuple[str, List]:
-    """Ensure context fits within model limits by compressing as needed."""
-    info = analyze_context_usage(system_prompt, context, chat_history, user_input, model_identifier)
+        # Analyze if compression is needed
+        info = analyze_context_usage(system_prompt, context, messages, user_input, model_identifier)
 
-    if not info.needs_compression:
-        logger.debug(f"Context fits for {model_identifier}: {info.total_tokens}/{info.limit} tokens")
-        return context, chat_history
+        if not info.needs_compression:
+            logger.debug(f"Context fits for {model_identifier}: {info.total_tokens}/{info.limit} tokens")
+            return messages
 
-    logger.warning(f"Context limit exceeded for {model_identifier}: {info.total_tokens}/{info.limit} tokens, compressing...")
+        logger.warning(f"Context limit exceeded for {model_identifier}: {info.total_tokens}/{info.limit} tokens, compressing...")
 
-    tokens_to_remove = abs(info.remaining)
-    compressed_context = context
-    compressed_history = chat_history
+        # Calculate how many tokens we need to remove
+        tokens_to_remove = abs(info.remaining)
 
-    # Compress history first (less important for immediate context)
-    history_tokens = count_tokens("\n".join(str(msg) for msg in chat_history))
-    if history_tokens > 0 and tokens_to_remove > 0:
-        history_reduction = min(tokens_to_remove, history_tokens // 2)
-        compressed_history = _compress_by_truncation(chat_history, history_reduction)
+        # Use existing compression logic
+        compressed_messages = _compress_by_truncation(messages, tokens_to_remove)
 
-        tokens_removed = history_tokens - count_tokens("\n".join(str(msg) for msg in compressed_history))
-        tokens_to_remove -= tokens_removed
-        logger.info(f"Compressed history for {model_identifier}: removed {tokens_removed} tokens")
+        # Log the compression
+        tokens_removed = count_tokens("\n".join(str(msg) for msg in messages)) - count_tokens("\n".join(str(msg) for msg in compressed_messages))
+        logger.info(f"Compressed history for {model_identifier}: removed {tokens_removed} tokens, {len(messages)} -> {len(compressed_messages)} messages")
 
-    # Compress context if still needed
-    if tokens_to_remove > 0 and context:
-        context_tokens = count_tokens(context)
-        target_tokens = max(context_tokens - tokens_to_remove, context_tokens // 4)
-        compressed_context = _compress_text_smartly(context, target_tokens)
+        return compressed_messages
 
-        tokens_removed = context_tokens - count_tokens(compressed_context)
-        logger.info(f"Compressed context for {model_identifier}: removed {tokens_removed} tokens")
-
-    # Verify final result
-    final_info = analyze_context_usage(system_prompt, compressed_context, compressed_history, user_input, model_identifier)
-    if final_info.needs_compression:
-        logger.error(f"Still over limit after compression for {model_identifier}: {final_info.total_tokens}/{final_info.limit}")
-    else:
-        logger.info(f"Successfully compressed for {model_identifier}: {final_info.total_tokens}/{final_info.limit} tokens")
-
-    return compressed_context, compressed_history
+    return compress_history_for_context

@@ -9,7 +9,6 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Dict, Any, Set
 from dataclasses import dataclass
 from dotenv import load_dotenv
 
@@ -23,7 +22,7 @@ logger = logging.getLogger(__name__)
 class BotConfig:
     """Configuration for the Telegram bot."""
     bot_token: str
-    allowed_chat_ids: Set[int]
+    allowed_chat_ids: set[int]
 
 
 @dataclass
@@ -41,7 +40,7 @@ class AppConfig:
     """Main application configuration."""
     bot: BotConfig
     models: ModelConfig
-    mcp_servers: Dict[str, Any]
+    mcp_servers: dict[str, any]
 
 
 def _load_telegram_bot_config() -> BotConfig:
@@ -114,7 +113,7 @@ def _load_model_config() -> ModelConfig:
     )
 
 
-def _load_mcp_servers_config() -> Dict[str, Any]:
+def _load_mcp_servers_config() -> dict[str, any]:
     """Load MCP server configurations from JSON file."""
     config_file = Path('mcp_servers_config.json')
 

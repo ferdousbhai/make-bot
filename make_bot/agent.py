@@ -1,20 +1,18 @@
 import logging
-import json
-import os
-from typing import Optional, Callable, Any, Awaitable, List, Dict
+from typing import Callable, Any, Awaitable
 from dataclasses import dataclass
 
 import logfire
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.mcp import MCPServerStdio
-from telegramify_markdown import telegramify
 from telegram.constants import ParseMode
+import telegramify_markdown
 
 from .chat_history import (
     get_chat_history, add_turn_to_history, get_chat_context, set_chat_context,
     search_chat_history_keywords, get_chat_history_range, get_chat_history_by_time
 )
-from .context_manager import ensure_context_fits
+from .context_manager import create_context_compression_processor
 from .prompt_loader import get_system_prompt, ModelType
 from .config import CONFIG
 
@@ -25,7 +23,7 @@ logger = logging.getLogger(__name__)
 class ChatDeps:
     chat_id: int
     reply_text: Callable[[str], Awaitable[Any]]
-    mcp_servers_config: Dict[str, Any]
+    mcp_servers_config: dict[str, Any]
 
 
 # =============================================================================
@@ -35,12 +33,11 @@ class ChatDeps:
 async def reply_to_user(ctx: RunContext[ChatDeps], message: str):
     """Send a message to the user via Telegram.
     Use this tool to send responses directly to the user in markdown format.
-    The message will be automatically formatted and chunked for Telegram.
     """
     try:
-        chunks = await telegramify(message)
-        for chunk in chunks:
-            await ctx.deps.reply_text(chunk.content, parse_mode=ParseMode.MARKDOWN_V2)
+        # Convert raw markdown to Telegram's MarkdownV2 format
+        formatted_message = telegramify_markdown.markdownify(message)
+        await ctx.deps.reply_text(formatted_message, parse_mode=ParseMode.MARKDOWN_V2)
         return "Message sent to user successfully"
     except Exception as e:
         logger.error(f"Error sending message to user: {e}", exc_info=True)
@@ -61,7 +58,7 @@ def update_chat_context(ctx: RunContext[ChatDeps], context: str):
     current_context = get_chat_context(ctx.deps.chat_id)
     return f"Context updated. Current context: {current_context[:200]}{'...' if len(current_context) > 200 else ''}"
 
-async def get_expert_response(ctx: RunContext[ChatDeps], query: str, context: str = "", mcp_servers: List[str] = None):
+async def get_expert_response(ctx: RunContext[ChatDeps], query: str, context: str = "", mcp_servers: list[str] = None):
     """Consult a more powerful expert model for complex tasks and analysis.
 
     Use this tool when you encounter queries that require:
@@ -74,15 +71,8 @@ async def get_expert_response(ctx: RunContext[ChatDeps], query: str, context: st
     Args:
         query: The specific question or task to ask the expert model
         context: Additional context or background information for the expert
-        mcp_servers: List of MCP server names to provide to the expert. Choose based on task requirements:
-            - "run-python": For tasks requiring Python code execution, data analysis, calculations,
-              scientific computing, chart generation, or any programming tasks
-            - "investor": For investment analysis, financial planning, market research,
-              stock analysis, or economic questions
-            - "brave-search": For current events, recent information, web research,
-              fact-checking, or when up-to-date information is needed
+        mcp_servers: List of MCP server names to provide to the expert. Available servers: {available_servers}
             If None or empty list, expert will work without external tools.
-            Use list_available_mcp_servers() to see currently configured servers.
 
     Examples:
         - For data analysis: mcp_servers=["run-python"]
@@ -90,7 +80,8 @@ async def get_expert_response(ctx: RunContext[ChatDeps], query: str, context: st
         - For current events: mcp_servers=["brave-search"]
         - For complex research: mcp_servers=["brave-search", "run-python"]
         - For pure reasoning: mcp_servers=[] or mcp_servers=None
-    """
+    """.format(available_servers=", ".join(ctx.deps.mcp_servers_config.keys()) if ctx.deps.mcp_servers_config else "None configured")
+
     logger.info(f"Consulting expert model for chat_id {ctx.deps.chat_id}: {query[:100]}...")
 
     try:
@@ -120,24 +111,21 @@ async def get_expert_response(ctx: RunContext[ChatDeps], query: str, context: st
         if selected_mcp_servers:
             agent_kwargs['mcp_servers'] = selected_mcp_servers
 
+        # Add history processor for expert agent too
+        expert_history_processor = create_context_compression_processor(
+            model_identifier=CONFIG.models.expert_model_identifier,
+            system_prompt=expert_prompt
+        )
+        agent_kwargs['history_processors'] = [expert_history_processor]
+
         expert_agent = Agent(**agent_kwargs)
 
-        # Compress query if needed and run expert agent
-        _, compressed_query_list = ensure_context_fits(
-            system_prompt=expert_prompt,
-            context="",
-            chat_history=[query],
-            user_input="",
-            model_identifier=CONFIG.models.expert_model_identifier
-        )
-        final_query = compressed_query_list[0] if compressed_query_list else query
-
-        # Run expert agent
+        # Run expert agent (no manual compression needed - handled by history processor)
         if selected_mcp_servers:
             async with expert_agent.run_mcp_servers():
-                result = await expert_agent.run(final_query)
+                result = await expert_agent.run(query)
         else:
-            result = await expert_agent.run(final_query)
+            result = await expert_agent.run(query)
 
         logger.info(f"Expert consultation completed for chat_id {ctx.deps.chat_id}")
         return f"Expert Response:\n\n{result.output}"
@@ -147,41 +135,9 @@ async def get_expert_response(ctx: RunContext[ChatDeps], query: str, context: st
         return f"Expert consultation failed: {str(e)}"
 
 
-def list_available_mcp_servers(ctx: RunContext[ChatDeps]) -> str:
-    """List all available MCP servers that can be provided to the expert model.
-
-    Use this tool to see what MCP servers are available before calling get_expert_response.
-    """
-    if not ctx.deps.mcp_servers_config:
-        return "No MCP servers are configured."
-
-    # Purpose mapping for server types
-    purpose_map = {
-        'python': "Python code execution and data analysis",
-        'search': "Web search and current information lookup",
-        'brave': "Web search and current information lookup",
-        'investor': "Investment, finance, and market analysis",
-        'finance': "Investment, finance, and market analysis"
-    }
-
-    def get_purpose(name):
-        for key, purpose in purpose_map.items():
-            if key in name.lower():
-                return purpose
-        return "General purpose tool"
-
-    server_list = [
-        f"- {name}: {get_purpose(name)}"
-        for name, config in ctx.deps.mcp_servers_config.items()
-        if config.get('command')
-    ]
-
-    return "Available MCP servers:\n" + "\n".join(server_list)
-
-
 def search_chat_history_tool(
     ctx: RunContext[ChatDeps],
-    keywords: List[str] = None,
+    keywords: list[str] = None,
     start_turn: int = None,
     end_turn: int = None,
     minutes_ago_start: int = None,
@@ -275,7 +231,7 @@ class AgentService:
     """
 
     def __init__(self):
-        self.agent: Optional[Agent] = None
+        self.agent: Agent | None = None
         self._is_initialized = False
 
     async def initialize(self):
@@ -288,18 +244,32 @@ class AgentService:
         try:
             logfire.configure()
 
+            # Get available MCP server names
+            available_mcp_servers = list(CONFIG.mcp_servers.keys()) if CONFIG.mcp_servers else []
+            mcp_servers_str = ", ".join(available_mcp_servers) if available_mcp_servers else "None configured"
+
             # Create orchestrator agent with custom tools only
-            system_prompt = get_system_prompt(ModelType.ORCHESTRATOR)
+            system_prompt = get_system_prompt(ModelType.ORCHESTRATOR, available_mcp_servers=mcp_servers_str)
+            custom_tools = [update_chat_context, reply_to_user, get_expert_response, search_chat_history_tool]
+
+            # Create history processor for automatic compression
+            history_compression_processor = create_context_compression_processor(
+                model_identifier=CONFIG.models.orchestrator_model_identifier,
+                system_prompt=system_prompt
+            )
+
             self.agent = Agent(
                 CONFIG.models.orchestrator_model_identifier,
                 deps_type=ChatDeps,
                 system_prompt=system_prompt,
-                tools=[update_chat_context, reply_to_user, get_expert_response, search_chat_history_tool, list_available_mcp_servers],
+                tools=custom_tools,
+                history_processors=[history_compression_processor],
                 instrument=True
             )
 
             self._is_initialized = True
-            logger.info("AgentService initialized (orchestrator agent with custom tools only).")
+            tool_names = [tool.__name__ for tool in custom_tools]
+            logger.info(f"Orchestrator agent initialize dwith custom tools: {', '.join(tool_names)}")
 
         except Exception as e:
             logger.error(f"Failed to initialize AgentService: {e}", exc_info=True)
@@ -331,28 +301,18 @@ class AgentService:
         deps = ChatDeps(chat_id=chat_id, reply_text=reply_text_func, mcp_servers_config=CONFIG.mcp_servers)
 
         try:
+            # Get available MCP server names for context-aware system prompt
+            available_mcp_servers = list(CONFIG.mcp_servers.keys()) if CONFIG.mcp_servers else []
+            mcp_servers_str = ", ".join(available_mcp_servers) if available_mcp_servers else "None configured"
+
             # Get context-aware system prompt
-            system_prompt = get_system_prompt(ModelType.ORCHESTRATOR, context=current_context)
-
-            # Ensure context fits within model limits before proceeding
-            compressed_context, compressed_history = ensure_context_fits(
-                system_prompt=system_prompt,
-                context=current_context,
-                chat_history=current_chat_history,
-                user_input=user_input,
-                model_identifier=CONFIG.models.orchestrator_model_identifier
-            )
-
-            # Update context if it was compressed
-            if compressed_context != current_context:
-                logger.info(f"Context was compressed for chat_id {chat_id}")
-                set_chat_context(chat_id, compressed_context)
+            system_prompt = get_system_prompt(ModelType.ORCHESTRATOR, context=current_context, available_mcp_servers=mcp_servers_str)
 
             logger.debug(f"Running agent for chat_id {chat_id}...")
             result = await self.agent.run(
                 user_input,
                 deps=deps,
-                message_history=compressed_history
+                message_history=current_chat_history
             )
             logger.debug(f"Agent response received for chat_id {chat_id}.")
 
