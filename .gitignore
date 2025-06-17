@@ -1,19 +1,12 @@
 # Python-generated files
-__pycache__/
-*.py[oc]
+**/__pycache__/
+.claude
+.ruff_cache
 build/
 dist/
 wheels/
 *.egg-info
-
-# Virtual environments
 .venv
-
-# Environment variables
 .env
-
-# Node modules
-node_modules/
-
-# MCP servers config
+chat_data
 mcp_servers_config.json

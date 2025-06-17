@@ -1,16 +1,16 @@
 import logging
 import os
 import asyncio
-import functools # Import functools
+import functools
 from dotenv import load_dotenv
 
-from telegramify_markdown import markdownify, telegramify
+from telegramify_markdown import markdownify
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from telegram.constants import ChatAction, ParseMode
 
 from .agent import AgentService
-from .chat_history import clear_chat
+from .chat_history import set_chat_context
 
 load_dotenv()
 
@@ -37,16 +37,10 @@ else:
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
-logging.getLogger("httpx").setLevel(logging.WARNING) # Reduce httpx verbosity
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
-agent_service = AgentService() # Create an instance of AgentService
-
-# --- Helper function for authorization ---
-# No longer takes update/context, just performs the check
-def is_authorized(chat_id: int) -> bool:
-    """Check if the chat_id is in the allowed list."""
-    return chat_id in ALLOWED_CHAT_IDS
+agent_service = AgentService()
 
 # --- Decorator for authorization ---
 def authorized_only(func):
@@ -54,7 +48,7 @@ def authorized_only(func):
     @functools.wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         chat_id = update.message.chat_id
-        if not is_authorized(chat_id):
+        if chat_id not in ALLOWED_CHAT_IDS:
             logger.warning(f"Unauthorized access attempt from chat_id: {chat_id} for {func.__name__}")
             await update.message.reply_text("Sorry, you are not authorized to use this bot.")
             return
@@ -64,39 +58,38 @@ def authorized_only(func):
     return wrapper
 
 # Command handlers
-@authorized_only # Apply the decorator
+@authorized_only
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a message when the command /start is issued."""
-    # Authorization check is handled by the decorator
-    # Removed the check block from here
     message = "👋 Agent Ready! Send me a message.\n\n_(Note: Chat history is maintained only for the current session and is not stored permanently. The agent has no long-term memory across sessions or restarts.)_"
     await update.message.reply_text(markdownify(message), parse_mode=ParseMode.MARKDOWN_V2)
 
-@authorized_only # Apply the decorator
+@authorized_only
 async def new_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Clears the chat history for the user."""
-    # Authorization check is handled by the decorator
-    # Removed the check block from here
-    chat_id = update.message.chat_id # Still need chat_id for logging and clearing
-    logger.info(f"Received /new command from chat_id {chat_id}. Clearing history.")
-    clear_chat(chat_id)
-    message = "🧹 New chat started! Your previous conversation history is cleared.\n\n_(Note: Chat history is maintained only for the current session and is not stored permanently. The agent has no long-term memory across sessions or restarts.)_"
+    """Clears the chat history and context for the user."""
+    chat_id = update.message.chat_id
+    logger.info(f"Received /new command from chat_id {chat_id}. Clearing context and history.")
+    set_chat_context(chat_id, "")  # Empty context will trigger history clearing
+    message = "🧹 New chat started! Your previous conversation history and context are cleared.\n\n_(Note: Chat history is maintained only for the current session and is not stored permanently. The agent has no long-term memory across sessions or restarts.)_"
     await update.message.reply_text(markdownify(message), parse_mode=ParseMode.MARKDOWN_V2)
 
 # Message handlers
-@authorized_only # Apply the decorator
+@authorized_only
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Respond to the user message using the agent."""
-    # Authorization check is handled by the decorator
-    # Removed the check block from here
-    if not update.message or not update.message.text: # Check for message/text still needed
+    if not update.message or not update.message.text:
         return
     chat_id = update.message.chat_id
     user_input = update.message.text
+    message_timestamp = update.message.date.timestamp()
 
     logger.info(f"Received message from chat_id {chat_id}: {user_input}")
 
-    agent_task = asyncio.create_task(agent_service.process_message(chat_id, user_input))
+    # Create a wrapper function for reply_text that matches the expected signature
+    async def reply_text_wrapper(text: str, **kwargs):
+        return await update.message.reply_text(text, **kwargs)
+
+    agent_task = asyncio.create_task(agent_service.process_message(chat_id, user_input, reply_text_wrapper, message_timestamp))
 
     # Send typing indicator periodically while the agent is working
     while not agent_task.done():
@@ -111,20 +104,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 agent_task.cancel()
             break # Exit the typing loop
 
-    agent_response = "Sorry, something went wrong." # Default message
     try:
-        agent_response = await agent_task # Retrieve result/exception
+        await agent_task # Wait for completion, agent handles its own responses
     except asyncio.CancelledError:
         logger.warning("Agent task was cancelled.")
+        await update.message.reply_text("Sorry, the request was cancelled.")
     except Exception as e:
-        logger.error(f"Error retrieving result from agent task: {e}", exc_info=True)
-
-    agent_response_chunks = await telegramify(agent_response)
-    try:
-        for chunk in agent_response_chunks:
-            await update.message.reply_text(chunk.content, parse_mode=ParseMode.MARKDOWN_V2)
-    except Exception as e:
-        logger.error(f"Error sending message chunks: {e}", exc_info=True)
+        logger.error(f"Error during agent processing: {e}", exc_info=True)
+        await update.message.reply_text("Sorry, I encountered an error while processing your request.")
 
 async def post_init_callback(application: Application):
     """Callback function to initialize the agent after the application starts."""
