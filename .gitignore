@@ -8,5 +8,8 @@ wheels/
 *.egg-info
 .venv
 .env
-chat_data
+node_modules
+chat_data/
 mcp_servers_config.json
+*.ipynb
+TODO

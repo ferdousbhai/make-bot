@@ -72,17 +72,6 @@ def _load_telegram_bot_config() -> BotConfig:
     )
 
 
-def _parse_int_env_var(var_name: str, default_value: int) -> int:
-    """Parse integer environment variable with default fallback."""
-    value_str = os.getenv(var_name)
-    if not value_str:
-        return default_value
-
-    try:
-        return int(value_str)
-    except ValueError as e:
-        logger.warning(f"Invalid integer value for {var_name}: '{value_str}', using default: {default_value}")
-        return default_value
 
 
 def _load_model_config() -> ModelConfig:
@@ -97,9 +86,9 @@ def _load_model_config() -> ModelConfig:
         )
 
     # Load context limits with sensible defaults
-    orchestrator_context_limit = _parse_int_env_var('ORCHESTRATOR_CONTEXT_LIMIT', 128000)
-    expert_context_limit = _parse_int_env_var('EXPERT_CONTEXT_LIMIT', 200000)
-    default_context_limit = _parse_int_env_var('DEFAULT_CONTEXT_LIMIT', 8192)
+    orchestrator_context_limit = int(os.getenv('ORCHESTRATOR_CONTEXT_LIMIT', '128000'))
+    expert_context_limit = int(os.getenv('EXPERT_CONTEXT_LIMIT', '200000'))
+    default_context_limit = int(os.getenv('DEFAULT_CONTEXT_LIMIT', '8192'))
 
     logger.info(f"Loaded model config: orchestrator={orchestrator_model} (limit: {orchestrator_context_limit}), "
                 f"expert={expert_model} (limit: {expert_context_limit})")

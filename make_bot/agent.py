@@ -2,7 +2,6 @@ import logging
 from typing import Callable, Any, Awaitable
 from dataclasses import dataclass
 
-import logfire
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.mcp import MCPServerStdio
 from telegram.constants import ParseMode
@@ -82,7 +81,7 @@ async def get_expert_response(ctx: RunContext[ChatDeps], query: str, context: st
         - For pure reasoning: mcp_servers=[] or mcp_servers=None
     """.format(available_servers=", ".join(ctx.deps.mcp_servers_config.keys()) if ctx.deps.mcp_servers_config else "None configured")
 
-    logger.info(f"Consulting expert model for chat_id {ctx.deps.chat_id}: {query[:100]}...")
+    logger.info(f"Consulting expert model for chat_id {ctx.deps.chat_id}: {query}...")
 
     try:
         expert_prompt = get_system_prompt(ModelType.EXPERT, context=context)
@@ -242,8 +241,6 @@ class AgentService:
 
         logger.info("Initializing AgentService...")
         try:
-            logfire.configure()
-
             # Get available MCP server names
             available_mcp_servers = list(CONFIG.mcp_servers.keys()) if CONFIG.mcp_servers else []
             mcp_servers_str = ", ".join(available_mcp_servers) if available_mcp_servers else "None configured"
