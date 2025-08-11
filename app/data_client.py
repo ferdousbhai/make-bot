@@ -9,6 +9,7 @@ from sqlalchemy import text
 logger = logging.getLogger(__name__)
 
 class ChatHistory(SQLModel, table=True):
+    __tablename__ = "chat_history"
     """SQLModel for chat history table."""
     id: int | None = Field(default=None, primary_key=True)
     chat_id: int = Field(index=True)

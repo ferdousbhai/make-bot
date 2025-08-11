@@ -1,15 +1,6 @@
 # Python-generated files
 **/__pycache__/
-.claude
 .ruff_cache
-build/
-dist/
-wheels/
 *.egg-info
 .venv
 .env
-node_modules
-chat_data/
-mcp_servers_config.json
-*.ipynb
-TODO

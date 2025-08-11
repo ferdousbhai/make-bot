@@ -31,24 +31,21 @@ A production-ready Telegram bot template with PostgreSQL context management, des
 
 1. In Railway dashboard → Add Service → Database → PostgreSQL
 2. Railway automatically provides `DATABASE_URL` environment variable
+3. Connect our service from step 1 to the database by `DATABASE_URL` environment variable in our service where the value is set to `${{ Postgres.DATABASE_URL }}`
 
 ### 3. Configure Environment Variables
 
-Add the following environment variables in Railway dashboard:
+Add the following environment variables in Railway dashboard for our service:
 
 **Required:**
 - `TELEGRAM_BOT_TOKEN` - Your bot token from BotFather
 - `MODEL_IDENTIFIER` - AI model provider name and model name separated by colon (e.g., `anthropic:claude-sonnet-4-20250514`)
 - `ALLOWED_CHAT_IDS` - Comma-separated chat IDs (e.g., `123456789,987654321`)
+- `LOGFIRE_WRITE_TOKEN` - For monitoring and logging AI model inference
 
 **AI Model API Keys** (choose based on your model):
 - `ANTHROPIC_API_KEY` - Your Anthropic API key (if using Claude)
 - ALternatively, use `OPENAI_API_KEY` for OpenAI model, `GOOGLE_API_KEY` for Google model etc (see pydantic-ai documentation for more info)
-
-**Optional:**
-- `LOGFIRE_WRITE_TOKEN` - For monitoring and logging
-
-**Note:** Railway automatically provides `DATABASE_URL` when you add the PostgreSQL service.
 
 
 ### 4. Deploy
