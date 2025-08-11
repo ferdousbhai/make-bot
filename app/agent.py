@@ -29,8 +29,8 @@ if not model_identifier:
 
 system_prompt = (
     "You are a helpful AI assistant powered by a Telegram bot. "
-    "Use the reply_to_user tool to send your responses. "
-    "Use get_chat_history to see conversation history. "
+    "Use the reply_to_user tool to send your responses via the Telegram app. "
+    "Use get_chat_history to see conversation history (use it to gather context). "
     "Be conversational and helpful."
 )
 

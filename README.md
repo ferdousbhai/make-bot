@@ -38,12 +38,12 @@ Add the following environment variables in Railway dashboard:
 
 **Required:**
 - `TELEGRAM_BOT_TOKEN` - Your bot token from BotFather
-- `MODEL_IDENTIFIER` - AI model (e.g., `anthropic:claude-sonnet-4-20250514`)
+- `MODEL_IDENTIFIER` - AI model provider name and model name separated by colon (e.g., `anthropic:claude-sonnet-4-20250514`)
 - `ALLOWED_CHAT_IDS` - Comma-separated chat IDs (e.g., `123456789,987654321`)
 
 **AI Model API Keys** (choose based on your model):
 - `ANTHROPIC_API_KEY` - Your Anthropic API key (if using Claude)
-- `GOOGLE_GENERATIVE_AI_API_KEY` - Your Google AI API key (if using Gemini)
+- ALternatively, use `OPENAI_API_KEY` for OpenAI model, `GOOGLE_API_KEY` for Google model etc (see pydantic-ai documentation for more info)
 
 **Optional:**
 - `LOGFIRE_WRITE_TOKEN` - For monitoring and logging
@@ -59,27 +59,18 @@ Railway automatically deploys when you push to your connected branch.
 
 ### Chat History Management
 
-The bot provides sophisticated context management through a single `get_chat_history` tool:
+The bot provides sophisticated context management capabilities through an internal `get_chat_history` tool:
 
-```python
-# Get recent messages
-await get_chat_history(limit=20)
+- **Recent Message Retrieval** - Access the most recent conversation history
+- **Keyword Search** - Find messages containing specific terms or phrases
+- **Time-based Filtering** - Retrieve messages from specific time periods
+- **Turn-based Navigation** - Access conversation history by turn ranges (supports negative indexing)
+- **Role Filtering** - Filter messages by role (user/assistant)
+- **Combined Filtering** - Use multiple filters together for precise context retrieval
 
-# Search by keyword
-await get_chat_history(query="python", limit=10)
+### Reply to user
 
-# Time-based filtering
-await get_chat_history(after_time="2024-01-01T00:00:00Z")
-
-# Turn-based ranges (negative indexing supported)
-await get_chat_history(start_turn=-10, end_turn=-1)
-
-# Role filtering
-await get_chat_history(role_filter="user", limit=5)
-
-# Combined filtering
-await get_chat_history(query="API", start_turn=-20, limit=5)
-```
+The agent uses `reply_to_user` tool to respond to user via the telegram app.
 
 ## Project Structure
 
@@ -90,7 +81,6 @@ make-bot/
 │   ├── agent.py            # AI agent service and tools
 │   ├── data_client.py      # PostgreSQL data client
 ├── run.py                  # Main bot runner
-├── Dockerfile              # Container configuration
 ├── railway.json            # Railway deployment config
 ├── pyproject.toml          # Dependencies and project config
 ├── README.md               # This file
@@ -99,53 +89,29 @@ make-bot/
 
 ### Database Schema
 
-The PostgreSQL client automatically creates these tables:
+The PostgreSQL client uses SQLModel and automatically creates the following table:
 
-```sql
--- Chat messages with full-text search
-CREATE TABLE chat_history (
-    id SERIAL PRIMARY KEY,
-    chat_id BIGINT NOT NULL,
-    role VARCHAR(20) NOT NULL,
-    content TEXT NOT NULL,
-    timestamp TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Indexes for better query performance
-CREATE INDEX idx_chat_history_chat_id ON chat_history(chat_id);
-CREATE INDEX idx_chat_history_timestamp ON chat_history(timestamp);
-CREATE INDEX idx_chat_history_content_search ON chat_history USING gin(to_tsvector('english', content));
+```python
+class ChatHistory(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    chat_id: int = Field(index=True)
+    role: str = Field(max_length=20)
+    content: str
+    timestamp: datetime = Field(default_factory=datetime.now, index=True)
 ```
 
-## Development
 
-### Adding New Tools
-
-1. Add async function with `@agent.tool` decorator in `app/agent.py`
-2. The tool will automatically be available to the agent
-3. Test locally before deployment
-
-### Extending Data Client
-
-The PostgreSQL client in `app/data_client.py` uses:
-- SQLAlchemy with async engine (asyncpg driver)
-- SQLModel for type-safe database models
-- Persistent chat history storage (all messages retained)
-- Full-text search with PostgreSQL GIN indexes
-
-
-### Logs and Monitoring
-
-```bash
-# Railway logs
-railway logs
+**Features:**
+- **Type Safety**: SQLModel provides full type safety with Pydantic validation
+- **Auto-migration**: Tables and indexes are created automatically on startup
+- **Full-text Search**: PostgreSQL GIN index for efficient content searching
 
 ```
 
 
 ## License
 
-MIT License - see LICENSE file for details.
+MIT
 
 ## Support
 
