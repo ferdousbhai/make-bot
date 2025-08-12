@@ -2,7 +2,6 @@ import os
 import logging
 from typing import Literal
 from dataclasses import dataclass
-from dotenv import load_dotenv
 
 from pydantic_ai import Agent, RunContext, UnexpectedModelBehavior
 from telegram import Message
@@ -11,7 +10,6 @@ import telegramify_markdown
 
 from .data_client import PostgreSQLDataClient
 
-load_dotenv()
 
 logger = logging.getLogger(__name__)
 

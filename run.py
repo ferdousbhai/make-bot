@@ -2,7 +2,6 @@ import os
 import logging
 import asyncio
 import functools
-from dotenv import load_dotenv
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
@@ -10,7 +9,6 @@ from telegram.constants import ChatAction
 
 from app.agent import AgentService
 
-load_dotenv()
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 MODEL_IDENTIFIER = os.getenv('MODEL_IDENTIFIER')
 DATABASE_URL = os.getenv('DATABASE_URL')
