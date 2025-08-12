@@ -9,7 +9,6 @@ dependencies = [
     "pydantic-ai>=0.0.14",
     "telegramify-markdown>=0.1.6",
     "sqlmodel>=0.0.14",
-    "asyncpg>=0.29.0",
 ]
 
 [tool.uv]
