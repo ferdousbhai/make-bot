@@ -5,7 +5,7 @@ A production-ready Telegram bot template with PostgreSQL context management, des
 ## Features
 
 - 🤖 **AI-Powered Conversations** - Using pydantic-ai
-- 💾 **PostgreSQL Storage** - Persistent chat history with advanced search capabilities
+- 💾 **PostgreSQL + SQLModel Storage** - Persistent chat history with advanced search capabilities
 - 🔍 **Rich Context Management** - Search by keywords, time ranges, and turn-based filtering
 - 🚀 **Railway Ready** - Optimized for Railway deployment with managed PostgreSQL
 - 📦 **Modern Python** - Uses `uv` for fast dependency management and `pyproject.toml`
@@ -30,57 +30,120 @@ A production-ready Telegram bot template with PostgreSQL context management, des
 ### 2. Add PostgreSQL Database
 
 1. In Railway dashboard → Add Service → Database → PostgreSQL
-2. Railway automatically provides `DATABASE_URL` environment variable
-3. Connect our service from step 1 to the database by `DATABASE_URL` environment variable in our service where the value is set to `${{ Postgres.DATABASE_URL }}`
+2. Railway automatically provides `DATABASE_URL` environment variable (used by SQLModel)
+3. Connect your bot service to the database by setting `DATABASE_URL` environment variable to `${{ Postgres.DATABASE_URL }}`
 
 ### 3. Configure Environment Variables
 
-Add the following environment variables in Railway dashboard for our service:
+Add the following environment variables in Railway dashboard for your bot service:
 
-**Required:**
 - `TELEGRAM_BOT_TOKEN` - Your bot token from BotFather
 - `MODEL_IDENTIFIER` - AI model provider name and model name separated by colon (e.g., `anthropic:claude-sonnet-4-20250514`)
 - `ALLOWED_CHAT_IDS` - Comma-separated chat IDs (e.g., `123456789,987654321`)
 - `LOGFIRE_WRITE_TOKEN` - For monitoring and logging AI model inference
-
-**AI Model API Keys** (choose based on your model):
-- `ANTHROPIC_API_KEY` - Your Anthropic API key (if using Claude)
-- ALternatively, use `OPENAI_API_KEY` for OpenAI model, `GOOGLE_API_KEY` for Google model etc (see pydantic-ai documentation for more info)
+- `ANTHROPIC_API_KEY` - Your Anthropic API key (if using Claude). ALternatively, use `OPENAI_API_KEY` for OpenAI model, `GOOGLE_API_KEY` for Google model etc (see pydantic-ai documentation for other models).
 
 
 ### 4. Deploy
 
 Railway automatically deploys when you push to your connected branch.
 
-## Core Features
+## Local Development
 
-### Chat History Management
+### 1. Install Railway CLI
 
-The bot provides sophisticated context management capabilities through an internal `get_chat_history` tool:
+```bash
+# macOS/Linux
+curl -fsSL https://railway.app/install.sh | sh
+```
 
-- **Recent Message Retrieval** - Access the most recent conversation history
-- **Keyword Search** - Find messages containing specific terms or phrases
-- **Time-based Filtering** - Retrieve messages from specific time periods
-- **Turn-based Navigation** - Access conversation history by turn ranges (supports negative indexing)
-- **Role Filtering** - Filter messages by role (user/assistant)
-- **Combined Filtering** - Use multiple filters together for precise context retrieval
+### 2. Setup Project
 
-### Reply to user
+```bash
+# Clone and setup
+git clone <your-repo-url>
+cd make-bot
 
-The agent uses `reply_to_user` tool to respond to user via the telegram app.
+# Login to Railway
+railway login
+
+# Link to your Railway project
+railway link -p <your-project-id>
+```
+
+### 3. Deploy Changes
+
+```bash
+# Deploy directly via CLI
+railway up
+
+# Or push to connected git branch for automatic deployment
+git push origin main
+```
+
+## Available Tools
+
+The AI agent has access to the following tools for enhanced functionality:
+
+### 1. `get_chat_history` Tool
+
+Sophisticated context management with advanced search capabilities:
+
+**Parameters:**
+- `limit: int = 10` - Maximum number of conversation turns to return
+- `query: list[str] | None = None` - **List of search terms** to filter messages containing any of these terms
+- `after_time: str | None = None` - ISO format datetime for time-based filtering
+- `before_time: str | None = None` - ISO format datetime for time-based filtering
+- `start_turn: int | None = None` - Starting turn index (supports negative indexing)
+- `end_turn: int | None = None` - Ending turn index (supports negative indexing)
+
+**Key Features:**
+- **Multi-term Search** - Search for multiple keywords at once (e.g., `["cat", "dog", "pets"]`)
+- **Full-text Search** - Uses PostgreSQL's advanced text search on both user messages and assistant replies
+- **Flexible Filtering** - Combine time-based, turn-based, and keyword filters
+- **Smart Indexing** - Supports negative indexing for recent conversations
+
+**Example Usage:**
+```python
+# Search for pet-related conversations
+get_chat_history(query=["cat", "dog", "pets", "animals"])
+
+# Get recent 5 turns with weather mentions
+get_chat_history(limit=5, query=["weather", "temperature", "rain"])
+
+# Time-based search with keywords
+get_chat_history(
+    query=["meeting", "schedule"],
+    after_time="2024-01-01T09:00:00"
+)
+```
+
+### 2. `reply_to_user` Tool
+
+Handles all communication back to the user through Telegram:
+
+**Features:**
+- **Markdown Support** - Automatically formats messages using Telegram's MarkdownV2
+- **Message Tracking** - Stores all assistant replies for context management
+- **Error Handling** - Graceful handling of message delivery issues
+
+**Usage:**
+- The agent automatically uses this tool to send responses
+- Supports rich text formatting, links, and Telegram-specific features
 
 ## Project Structure
 
 ```
 make-bot/
-├── app/
+├── run.py                  # Main entry point and bot setup
+├── app/                    # Application modules
 │   ├── __init__.py
-│   ├── agent.py            # AI agent service and tools
-│   ├── data_client.py      # PostgreSQL data client
-├── run.py                  # Main bot runner
-├── railway.json            # Railway deployment config
-├── pyproject.toml          # Dependencies and project config
-├── README.md               # This file
+│   ├── auth.py            # Authorization decorator and logic
+│   ├── models.py          # Database models (ConversationTurn, ChatDeps)
+│   └── tools.py           # AI agent tools (reply_to_user, get_chat_history)
+├── railway.json           # Railway deployment config
+├── pyproject.toml         # Dependencies and project config
+├── README.md
 └── .gitignore
 ```
 
@@ -89,11 +152,11 @@ make-bot/
 The PostgreSQL client uses SQLModel and automatically creates the following table:
 
 ```python
-class ChatHistory(SQLModel, table=True):
+class ConversationTurn(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     chat_id: int = Field(index=True)
-    role: str = Field(max_length=20)
-    content: str
+    user_message: str
+    assistant_replies: list[str] = Field(default_factory=list)
     timestamp: datetime = Field(default_factory=datetime.now, index=True)
 ```
 
@@ -101,14 +164,14 @@ class ChatHistory(SQLModel, table=True):
 **Features:**
 - **Type Safety**: SQLModel provides full type safety with Pydantic validation
 - **Auto-migration**: Tables and indexes are created automatically on startup
-- **Full-text Search**: PostgreSQL GIN index for efficient content searching
+- **Full-text Search**: PostgreSQL text search vectors for efficient content searching
 
 ```
 
 
 ## License
 
-MIT
+[MIT](LICENSE)
 
 ## Support
 
@@ -119,6 +182,15 @@ MIT
 
 ---
 
-**Ready to deploy your Telegram bot?** Click the button below to deploy to Railway:
+## Template Deployment
 
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/template/make-bot)
+This project is configured as a Railway template for one-click deployment.
+
+### Deploy Your Own Bot
+
+1. **Fork this repository** to your GitHub account
+2. **Deploy to Railway** using the template:
+   - Visit [Railway](https://railway.app)
+   - Create new project → Deploy from GitHub repo
+   - Select your forked repository
+   - Railway will automatically set up PostgreSQL and configure the bot
