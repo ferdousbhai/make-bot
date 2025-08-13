@@ -4,6 +4,7 @@ from sqlmodel import SQLModel, Field
 from sqlalchemy import JSON
 from sqlalchemy.engine import Engine
 from telegram import Message
+import asyncio
 
 
 class ConversationTurn(SQLModel, table=True):
@@ -19,5 +20,6 @@ class ChatDeps(BaseModel):
     telegram_message: Message
     engine: Engine
     assistant_replies: list[str]
+    typing_task: asyncio.Task | None = None
     class Config:
         arbitrary_types_allowed = True

@@ -8,6 +8,10 @@ from app.models import ConversationTurn, ChatDeps
 
 
 async def reply_to_user(ctx: RunContext[ChatDeps], message: str) -> bool | Exception:
+    # Cancel typing indicator before sending reply
+    if ctx.deps.typing_task and not ctx.deps.typing_task.done():
+        ctx.deps.typing_task.cancel()
+    
     await ctx.deps.telegram_message.reply_text(telegramify_markdown.markdownify(message), parse_mode=ParseMode.MARKDOWN_V2)
     ctx.deps.assistant_replies.append(message)
     return True
