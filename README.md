@@ -4,6 +4,8 @@ A production-ready Telegram bot template with PostgreSQL context management, des
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/fr56p3?referralCode=JIh7xZ)
 
+
+
 ## Features
 
 - 🤖 **AI-Powered Conversations** - Using pydantic-ai
@@ -13,6 +15,8 @@ A production-ready Telegram bot template with PostgreSQL context management, des
 - 📦 **Modern Python** - Uses `uv` for fast dependency management and `pyproject.toml`
 - 🔐 **Authorization** - Chat ID-based access control
 
+
+
 ## Quick Start
 
 ### Prerequisites
@@ -21,9 +25,9 @@ A production-ready Telegram bot template with PostgreSQL context management, des
 - Telegram bot token from [@BotFather](https://t.me/botfather)
 - AI model API keys (supports any model using pydantic-ai)
 
-## Railway Deployment
 
-### One-Click Deployment
+
+## Railway Deployment
 
 1. Click the "Deploy on Railway" button above
 2. Configure required environment variables:
@@ -33,6 +37,8 @@ A production-ready Telegram bot template with PostgreSQL context management, des
    - `ALLOWED_CHAT_IDS` - (optional) Comma-separated chat IDs for access control
    - `LOGFIRE_TOKEN` - (optional) For monitoring
 3. Deploy!
+
+
 
 ## Local Development
 
@@ -53,7 +59,6 @@ cd make-bot
 # Login to Railway
 railway login
 
-# Link to your Railway project
 railway link -p <your-project-id>
 
 ```
@@ -61,9 +66,10 @@ railway link -p <your-project-id>
 ### 3. Deploy Changes
 
 ```bash
-# Deploy directly via CLI
 railway up
 ```
+
+
 
 ## Available Tools
 
@@ -100,7 +106,6 @@ Handles all communication back to the user through Telegram:
 **Features:**
 - **Markdown Support** - Automatically formats messages using Telegram's MarkdownV2
 - **Message Tracking** - Stores all assistant replies for context management
-- **Error Handling** - Graceful handling of message delivery issues
 
 **Usage:**
 - The agent automatically uses this tool to send responses
@@ -135,9 +140,13 @@ class ConversationTurn(SQLModel, table=True):
     timestamp: datetime = Field(default_factory=datetime.now, index=True)
 ```
 
+
+
 ## License
 
 [MIT](LICENSE)
+
+
 
 ## Support
 
@@ -145,7 +154,3 @@ class ConversationTurn(SQLModel, table=True):
 - 🔧 [uv Documentation](https://docs.astral.sh/uv/)
 - 🤖 [python-telegram-bot Guide](https://docs.python-telegram-bot.org/)
 - 🧠 [PydanticAI Documentation](https://ai.pydantic.dev/)
-
----
-
-**Ready to deploy your own bot?** Click the Railway button at the top!
