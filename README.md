@@ -2,6 +2,8 @@
 
 A production-ready Telegram bot template with PostgreSQL context management, designed for easy deployment on Railway with uv for project management.
 
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/fr56p3?referralCode=JIh7xZ)
+
 ## Features
 
 - 🤖 **AI-Powered Conversations** - Using pydantic-ai
@@ -39,9 +41,9 @@ Add the following environment variables in Railway dashboard for your bot servic
 
 - `TELEGRAM_BOT_TOKEN` - Your bot token from BotFather
 - `MODEL_IDENTIFIER` - AI model provider name and model name separated by colon (e.g., `anthropic:claude-sonnet-4-20250514`)
-- `ALLOWED_CHAT_IDS` - Comma-separated chat IDs (e.g., `123456789,987654321`)
-- `LOGFIRE_TOKEN` - For monitoring and logging AI model inference (get this from your Logfire project settings → Write tokens)
-- `ANTHROPIC_API_KEY` - Your Anthropic API key (if using Claude). ALternatively, use `OPENAI_API_KEY` for OpenAI model, `GOOGLE_API_KEY` for Google model etc (see pydantic-ai documentation for other models).
+- `ANTHROPIC_API_KEY` - (Optional) Your Anthropic API key (if using Claude). Alternatively, use `OPENAI_API_KEY` for OpenAI model, `GOOGLE_API_KEY` for Google model etc (see pydantic-ai documentation for other models).
+- `ALLOWED_CHAT_IDS` - (Optional) Comma-separated chat IDs (e.g., `123456789,987654321`). If not set, allows all users.
+- `LOGFIRE_TOKEN` - (Optional) For monitoring and logging AI model inference (get this from your Logfire project settings → Write tokens)
 
 
 ### 4. Deploy

@@ -13,7 +13,7 @@ def is_user_authorized(func):
     @functools.wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         chat_id = update.message.chat_id
-        if chat_id not in ALLOWED_CHAT_IDS:
+        if ALLOWED_CHAT_IDS and chat_id not in ALLOWED_CHAT_IDS:
             logger.warning(f"Unauthorized access from chat_id: {chat_id} for {func.__name__}")
             await update.message.reply_text("Sorry, you are not authorized to use this bot.")
             return
