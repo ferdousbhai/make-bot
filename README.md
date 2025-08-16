@@ -23,32 +23,16 @@ A production-ready Telegram bot template with PostgreSQL context management, des
 
 ## Railway Deployment
 
-### 1. Connect Repository
+### One-Click Deployment
 
-1. Visit [Railway](https://railway.app)
-2. Create new project → Deploy from GitHub repo
-3. Select your forked repository
-
-### 2. Add PostgreSQL Database
-
-1. In Railway dashboard → Add Service → Database → PostgreSQL
-2. Railway automatically provides `DATABASE_URL` environment variable (used by SQLModel)
-3. Connect your bot service to the database by setting `DATABASE_URL` environment variable to `${{ Postgres.DATABASE_URL }}`
-
-### 3. Configure Environment Variables
-
-Add the following environment variables in Railway dashboard for your bot service:
-
-- `TELEGRAM_BOT_TOKEN` - Your bot token from BotFather
-- `MODEL_IDENTIFIER` - AI model provider name and model name separated by colon (e.g., `anthropic:claude-sonnet-4-20250514`)
-- `ANTHROPIC_API_KEY` - (Optional) Your Anthropic API key (if using Claude). Alternatively, use `OPENAI_API_KEY` for OpenAI model, `GOOGLE_API_KEY` for Google model etc (see pydantic-ai documentation for other models).
-- `ALLOWED_CHAT_IDS` - (Optional) Comma-separated chat IDs (e.g., `123456789,987654321`). If not set, allows all users.
-- `LOGFIRE_TOKEN` - (Optional) For monitoring and logging AI model inference (get this from your Logfire project settings → Write tokens)
-
-
-### 4. Deploy
-
-Railway automatically deploys when you push to your connected branch.
+1. Click the "Deploy on Railway" button above
+2. Configure required environment variables:
+   - `TELEGRAM_BOT_TOKEN` - Your bot token from BotFather
+   - `MODEL_IDENTIFIER` - AI model (e.g., `anthropic:claude-sonnet-4-20250514`)
+   - API key for your chosen provider (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, etc.)
+   - `ALLOWED_CHAT_IDS` - (optional) Comma-separated chat IDs for access control
+   - `LOGFIRE_TOKEN` - (optional) For monitoring
+3. Deploy!
 
 ## Local Development
 
@@ -79,6 +63,7 @@ railway link -p <your-project-id>
 ```bash
 # Deploy directly via CLI
 railway up
+```
 
 ## Available Tools
 
@@ -92,12 +77,6 @@ Context management with advanced search capabilities:
 - `days: int | None = 30` - Number of days to look back (None for all messages)
 - `start_turn: int | None = None` - Starting turn index (supports negative indexing)
 - `end_turn: int | None = None` - Ending turn index (supports negative indexing)
-
-**Key Features:**
-- **Multi-term Search** - Search for multiple keywords at once (e.g., `["cat", "dog", "pets"]`)
-- **Full-text Search** - Uses PostgreSQL's advanced text search on both user messages and assistant replies
-- **Flexible Filtering** - Combine time-based, turn-based, and keyword filters
-- **Smart Indexing** - Supports negative indexing for recent conversations
 
 **Example Usage:**
 ```python
@@ -156,15 +135,6 @@ class ConversationTurn(SQLModel, table=True):
     timestamp: datetime = Field(default_factory=datetime.now, index=True)
 ```
 
-
-**Features:**
-- **Type Safety**: SQLModel provides full type safety with Pydantic validation
-- **Auto-migration**: Tables and indexes are created automatically on startup
-- **Full-text Search**: PostgreSQL text search vectors for efficient content searching
-
-```
-
-
 ## License
 
 [MIT](LICENSE)
@@ -178,15 +148,4 @@ class ConversationTurn(SQLModel, table=True):
 
 ---
 
-## Template Deployment
-
-This project is configured as a Railway template for one-click deployment.
-
-### Deploy Your Own Bot
-
-1. **Fork this repository** to your GitHub account
-2. **Deploy to Railway** using the template:
-   - Visit [Railway](https://railway.app)
-   - Create new project → Deploy from GitHub repo
-   - Select your forked repository
-   - Railway will automatically set up PostgreSQL and configure the bot
+**Ready to deploy your own bot?** Click the Railway button at the top!
