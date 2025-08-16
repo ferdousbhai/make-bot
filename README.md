@@ -40,7 +40,7 @@ Add the following environment variables in Railway dashboard for your bot servic
 - `TELEGRAM_BOT_TOKEN` - Your bot token from BotFather
 - `MODEL_IDENTIFIER` - AI model provider name and model name separated by colon (e.g., `anthropic:claude-sonnet-4-20250514`)
 - `ALLOWED_CHAT_IDS` - Comma-separated chat IDs (e.g., `123456789,987654321`)
-- `LOGFIRE_WRITE_TOKEN` - For monitoring and logging AI model inference
+- `LOGFIRE_TOKEN` - For monitoring and logging AI model inference (get this from your Logfire project settings → Write tokens)
 - `ANTHROPIC_API_KEY` - Your Anthropic API key (if using Claude). ALternatively, use `OPENAI_API_KEY` for OpenAI model, `GOOGLE_API_KEY` for Google model etc (see pydantic-ai documentation for other models).
 
 
@@ -69,6 +69,7 @@ railway login
 
 # Link to your Railway project
 railway link -p <your-project-id>
+
 ```
 
 ### 3. Deploy Changes
@@ -77,23 +78,16 @@ railway link -p <your-project-id>
 # Deploy directly via CLI
 railway up
 
-# Or push to connected git branch for automatic deployment
-git push origin main
-```
-
 ## Available Tools
-
-The AI agent has access to the following tools for enhanced functionality:
 
 ### 1. `get_chat_history` Tool
 
-Sophisticated context management with advanced search capabilities:
+Context management with advanced search capabilities:
 
 **Parameters:**
 - `limit: int = 10` - Maximum number of conversation turns to return
 - `query: list[str] | None = None` - **List of search terms** to filter messages containing any of these terms
-- `after_time: str | None = None` - ISO format datetime for time-based filtering
-- `before_time: str | None = None` - ISO format datetime for time-based filtering
+- `days: int | None = 30` - Number of days to look back (None for all messages)
 - `start_turn: int | None = None` - Starting turn index (supports negative indexing)
 - `end_turn: int | None = None` - Ending turn index (supports negative indexing)
 
@@ -111,10 +105,10 @@ get_chat_history(query=["cat", "dog", "pets", "animals"])
 # Get recent 5 turns with weather mentions
 get_chat_history(limit=5, query=["weather", "temperature", "rain"])
 
-# Time-based search with keywords
+# Time-based search with keywords (last 7 days)
 get_chat_history(
     query=["meeting", "schedule"],
-    after_time="2024-01-01T09:00:00"
+    days=7
 )
 ```
 
@@ -139,7 +133,7 @@ make-bot/
 ├── app/                    # Application modules
 │   ├── __init__.py
 │   ├── auth.py            # Authorization decorator and logic
-│   ├── models.py          # Database models (ConversationTurn, ChatDeps)
+│   ├── models.py          # Data models (ConversationTurn, ChatDeps)
 │   └── tools.py           # AI agent tools (reply_to_user, get_chat_history)
 ├── railway.json           # Railway deployment config
 ├── pyproject.toml         # Dependencies and project config

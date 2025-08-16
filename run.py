@@ -3,6 +3,7 @@ from datetime import datetime
 import logging
 import os
 
+import logfire
 from pydantic_ai import Agent, UnexpectedModelBehavior
 from sqlmodel import create_engine, Session, SQLModel
 from telegram import Update
@@ -36,12 +37,15 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     logger.info(f"Received message from chat_id {update.message.chat_id}: {update.message.text}")
     deps = ChatDeps(telegram_message=update.message, engine=context.application.bot_data['engine'], assistant_replies=[])
     agent = context.application.bot_data['agent']
+
+    logger.info("Starting agent run...")
     agent_task = asyncio.create_task(agent.run(update.message.text, deps=deps))
     typing_task = None
 
     while not agent_task.done():
         try:
-            if not typing_task or typing_task.done():
+            # Only create new typing task if none exists or current one finished naturally (not cancelled)
+            if not typing_task or (typing_task.done() and not typing_task.cancelled()):
                 typing_task = deps.typing_task = asyncio.create_task(update.message.chat.send_chat_action(ChatAction.TYPING))
             # Wait for either bot to finish or typing indicator to need refresh
             await asyncio.wait(
@@ -53,13 +57,22 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             if not agent_task.done(): agent_task.cancel()
             break
 
-    if typing_task:
+    # Cancel typing indicator after agent completes
+    if typing_task and not typing_task.done():
         typing_task.cancel()
+    
+    # Handle typing task exceptions to prevent unhandled task errors
+    if typing_task and typing_task.done() and not typing_task.cancelled():
+        try:
+            typing_task.result()
+        except Exception:
+            pass  # Ignore typing indicator errors
+    logger.info("Agent run completed")
 
     # Handle bot task result
     try:
-        logger.info("Running agent")
-        await agent_task
+        # Get result to ensure any exceptions are handled
+        agent_task.result()
         # Save conversation to database
         with Session(deps.engine) as session:
             session.add(ConversationTurn(
@@ -71,19 +84,22 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             session.commit()
     except asyncio.CancelledError:
         await update.message.reply_text("Sorry, there was a connection problem. Please try again.")
-    except UnexpectedModelBehavior as e:
-        logger.info(str(e))
+    except UnexpectedModelBehavior:
+        pass # Typically empty model response, expected when agent uses tools to respond
     except Exception as e:
         logger.error(f"Error processing message for chat {update.message.chat.id}: {e}", exc_info=True)
 
 async def startup(application):
+
+    logfire.configure(send_to_logfire='if-token-present')
+    logfire.instrument_pydantic_ai()
     engine = create_engine(DATABASE_URL)
     SQLModel.metadata.create_all(engine)
 
     system_prompt = (
         "You are a helpful AI assistant powered by a Telegram bot. "
         "Use the reply_to_user tool to send your responses via the Telegram app. "
-        "Use get_chat_history to see conversation history (use it to gather context). "
+        "Use get_chat_history to gather context from previous messages. "
         "Be conversational and helpful."
     )
 

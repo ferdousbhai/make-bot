@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlmodel import Session, select
 from sqlalchemy import or_, func
 from pydantic_ai import RunContext
@@ -11,7 +11,7 @@ async def reply_to_user(ctx: RunContext[ChatDeps], message: str) -> bool | Excep
     # Cancel typing indicator before sending reply
     if ctx.deps.typing_task and not ctx.deps.typing_task.done():
         ctx.deps.typing_task.cancel()
-    
+
     await ctx.deps.telegram_message.reply_text(telegramify_markdown.markdownify(message), parse_mode=ParseMode.MARKDOWN_V2)
     ctx.deps.assistant_replies.append(message)
     return True
@@ -19,20 +19,18 @@ async def reply_to_user(ctx: RunContext[ChatDeps], message: str) -> bool | Excep
 
 async def get_chat_history(
     ctx: RunContext[ChatDeps],
-    limit: int = 10,
+    limit: int = 5,
     query: list[str] | None = None,
-    after_time: str | None = None,
-    before_time: str | None = None,
+    days: int | None = 30,
     start_turn: int | None = None,
     end_turn: int | None = None
 ) -> list[dict] | Exception:
-    """Get chat history with filtering capabilities.
+    """Use it for chat context when relevant.
 
     Args:
-        limit: Maximum number of conversation turns to return (default: 10)
+        limit: Maximum number of conversation turns to return (default: 5)
         query: List of search terms to filter messages containing any of these terms
-        after_time: ISO format datetime string to get messages after this time
-        before_time: ISO format datetime string to get messages before this time
+        days: Number of days to look back (default: 30, None for all messages)
         start_turn: Starting turn index (0-based, supports negative indexing)
         end_turn: Ending turn index (0-based, supports negative indexing)
 
@@ -43,20 +41,20 @@ async def get_chat_history(
         - timestamp: ISO format timestamp
 
     Examples:
-        # Get last 5 conversation turns
-        get_chat_history(limit=5)
+        # Get last 5 conversation turns from last 30 days
+        get_chat_history()
 
-        # Search for messages containing "weather"
-        get_chat_history(query=["weather"])
+        # Search for messages containing "weather" from last 7 days
+        get_chat_history(query=["weather"], days=7)
 
-        # Search for pet-related messages
-        get_chat_history(query=["cat", "dog", "pets"])
+        # Search for pet-related messages from last 180 days
+        get_chat_history(query=["cat", "dog", "pets"], days=180)
 
-        # Get messages from the last hour
-        get_chat_history(after_time="2024-01-01T12:00:00")
+        # Get messages from last day
+        get_chat_history(days=1)
 
-        # Get messages between specific times
-        get_chat_history(after_time="2024-01-01T09:00:00", before_time="2024-01-01T17:00:00")
+        # Get all messages (no time filter)
+        get_chat_history(days=None)
 
         # Get turns 5-10 (0-based indexing)
         get_chat_history(start_turn=5, end_turn=10)
@@ -68,13 +66,10 @@ async def get_chat_history(
         # Start with chat_id filter to match the current chat
         statement = select(ConversationTurn).where(ConversationTurn.chat_id == ctx.deps.telegram_message.chat.id)
 
-        if after_time:
-            after_dt = datetime.fromisoformat(after_time)
+        # Apply time filter
+        if days is not None:
+            after_dt = datetime.now() - timedelta(days=days)
             statement = statement.where(ConversationTurn.timestamp >= after_dt)
-
-        if before_time:
-            before_dt = datetime.fromisoformat(before_time)
-            statement = statement.where(ConversationTurn.timestamp <= before_dt)
 
         if query:
             # Create search conditions for each query term

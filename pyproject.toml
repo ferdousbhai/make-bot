@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "python-telegram-bot>=21.0.1",
-    "pydantic-ai>=0.0.14",
+    "pydantic-ai[logfire]>=0.0.14",
     "telegramify-markdown>=0.1.6",
     "sqlmodel>=0.0.14",
     "psycopg2-binary>=2.9.10",
