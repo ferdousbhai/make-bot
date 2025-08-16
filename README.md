@@ -78,19 +78,26 @@ railway up
 Context management with advanced search capabilities:
 
 **Parameters:**
-- `limit: int = 10` - Maximum number of conversation turns to return
+- `turns: str = "-5:"` - Python slice syntax for selecting conversation turns
 - `query: list[str] | None = None` - **List of search terms** to filter messages containing any of these terms
 - `days: int | None = 30` - Number of days to look back (None for all messages)
-- `start_turn: int | None = None` - Starting turn index (supports negative indexing)
-- `end_turn: int | None = None` - Ending turn index (supports negative indexing)
 
 **Example Usage:**
 ```python
+# Get last 5 turns (default)
+get_chat_history()
+
+# Get last 3 turns
+get_chat_history(turns="-3:")
+
+# Get turns 5-10
+get_chat_history(turns="5:10")
+
 # Search for pet-related conversations
 get_chat_history(query=["cat", "dog", "pets", "animals"])
 
-# Get recent 5 turns with weather mentions
-get_chat_history(limit=5, query=["weather", "temperature", "rain"])
+# Get recent 3 turns with weather mentions
+get_chat_history(turns="-3:", query=["weather", "temperature", "rain"])
 
 # Time-based search with keywords (last 7 days)
 get_chat_history(
@@ -115,10 +122,11 @@ Handles all communication back to the user through Telegram:
 
 ```
 make-bot/
-├── run.py                  # Main entry point and bot setup
+├── main.py                 # Thin wrapper entry point
 ├── app/                    # Application modules
 │   ├── __init__.py
 │   ├── auth.py            # Authorization decorator and logic
+│   ├── bot.py             # Main bot setup and handlers
 │   ├── models.py          # Data models (ConversationTurn, ChatDeps)
 │   └── tools.py           # AI agent tools (reply_to_user, get_chat_history)
 ├── railway.json           # Railway deployment config

@@ -19,20 +19,16 @@ async def reply_to_user(ctx: RunContext[ChatDeps], message: str) -> bool | Excep
 
 async def get_chat_history(
     ctx: RunContext[ChatDeps],
-    limit: int = 5,
+    turns: str = "-5:",
     query: list[str] | None = None,
-    days: int | None = 30,
-    start_turn: int | None = None,
-    end_turn: int | None = None
+    days: int | None = 30
 ) -> list[dict] | Exception:
     """Use it for chat context when relevant.
 
     Args:
-        limit: Maximum number of conversation turns to return (default: 5)
+        turns: Python slice syntax for selecting conversation turns (default: "-5:" for last 5)
         query: List of search terms to filter messages containing any of these terms
         days: Number of days to look back (default: 30, None for all messages)
-        start_turn: Starting turn index (0-based, supports negative indexing)
-        end_turn: Ending turn index (0-based, supports negative indexing)
 
     Returns:
         List of conversation turns, each containing:
@@ -44,23 +40,20 @@ async def get_chat_history(
         # Get last 5 conversation turns from last 30 days
         get_chat_history()
 
+        # Get last 3 turns
+        get_chat_history(turns="-3:")
+
+        # Get turns 5-10
+        get_chat_history(turns="5:10")
+
         # Search for messages containing "weather" from last 7 days
         get_chat_history(query=["weather"], days=7)
 
         # Search for pet-related messages from last 180 days
         get_chat_history(query=["cat", "dog", "pets"], days=180)
 
-        # Get messages from last day
-        get_chat_history(days=1)
-
         # Get all messages (no time filter)
         get_chat_history(days=None)
-
-        # Get turns 5-10 (0-based indexing)
-        get_chat_history(start_turn=5, end_turn=10)
-
-        # Get last 3 turns using negative indexing
-        get_chat_history(start_turn=-3)
     """
     with Session(ctx.deps.engine) as session:
         # Start with chat_id filter to match the current chat
@@ -104,12 +97,21 @@ async def get_chat_history(
             }
             conversation_turns.append(turn)
 
-        # Apply turn-based filtering
-        if start_turn is not None or end_turn is not None:
-            total = len(conversation_turns)
-            start_idx = max(0, min((start_turn if start_turn is not None and start_turn >= 0 else total + (start_turn or 0)), total))
-            end_idx = max(start_idx, min((end_turn + 1 if end_turn is not None and end_turn >= 0 else total + (end_turn or -1) + 1) if end_turn is not None else total, total))
-            conversation_turns = conversation_turns[start_idx:end_idx]
+        # Apply slice-based filtering
+        if turns:
+            try:
+                # Parse slice notation (e.g., "-5:", "2:8", ":")
+                if ':' in turns:
+                    parts = turns.split(':')
+                    start = int(parts[0]) if parts[0] else None
+                    end = int(parts[1]) if parts[1] else None
+                    conversation_turns = conversation_turns[start:end]
+                else:
+                    # Single index
+                    idx = int(turns)
+                    conversation_turns = [conversation_turns[idx]]
+            except (ValueError, IndexError):
+                # Invalid slice syntax, return empty list
+                conversation_turns = []
 
-        # Apply limit
-        return conversation_turns[-limit:] if limit > 0 else conversation_turns
+        return conversation_turns
